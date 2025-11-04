@@ -12,43 +12,57 @@ import {
   FaSignOutAlt,
 } from 'react-icons/fa';
 import { useAuth } from '@/app/context/authcontext';
-
-const API_URL = 'https://amapi.amfoss.in/';
+import { getUserByEmail } from '@/lib/api';
 
 const ProfilePage = () => {
   const { logout } = useAuth();
   const router = useRouter();
 
   const [user, setUser] = useState<{ name: string; email: string; role: string; id: number } | null>(null);
+  const [hasRedirected, setHasRedirected] = useState(false);
+  const { isInitialized, isLoggedIn } = useAuth();
 
   useEffect(() => {
     const fetchUser = async () => {
+      // Wait for auth to be initialized to avoid reading stale localStorage
+      if (!isInitialized) return;
+      
+      if (hasRedirected) return;
+
+      if (!isLoggedIn) {
+        setHasRedirected(true);
+        router.push('/login');
+        return;
+      }
+
+      const cachedProfile = sessionStorage.getItem("cache_profile");
+      if (cachedProfile) {
+        setUser(JSON.parse(cachedProfile));
+        return;
+      }
+
       const email = localStorage.getItem('email');
+      
       if (!email) {
+        alert('Profile data missing. Please log in again.');
+        setHasRedirected(true);
         router.push('/login');
         return;
       }
 
       try {
-        const res = await fetch(`${API_URL}auth/user/${email}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail);
+        const data = await getUserByEmail(email);
         setUser(data);
         sessionStorage.setItem("cache_profile", JSON.stringify(data));
       } catch (err) {
         console.error('Failed to fetch user:', err);
-        logout();
+        setHasRedirected(true);
         router.push('/login');
       }
     };
-    
-    const cachedProfile = sessionStorage.getItem("cache_profile");
-    if (cachedProfile) {
-      setUser(JSON.parse(cachedProfile));
-    } else {
-      fetchUser();
-    }
-  }, [logout, router]);
+
+    fetchUser();
+  }, [logout, router, isInitialized, isLoggedIn, hasRedirected]);
 
   const handleLogout = () => {
     logout();
@@ -71,7 +85,7 @@ const ProfilePage = () => {
           <div className="flex flex-col items-center">
             <div className="relative">
               <div className="w-36 h-36 rounded-full border-4 border-yellow-400 flex items-center justify-center text-lg font-semibold text-white">
-                {/* Placeholder for PFP */}
+              
                 {user.name.charAt(0)}
               </div>
             </div>
@@ -83,7 +97,6 @@ const ProfilePage = () => {
               {isMentor ? 'Mentor' : 'Mentee'} @ amFOSS
             </p>
 
-            {/* Placeholder socials */}
             <div className="flex gap-4 mt-4 text-gray-400">
               <Link href="#"><FaGithub className="text-2xl hover:text-white transition" /></Link>
               <Link href="#"><FaGitlab className="text-2xl hover:text-white transition" /></Link>

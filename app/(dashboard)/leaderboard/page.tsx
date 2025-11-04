@@ -25,8 +25,9 @@ const LeaderBoardPage = () => {
   const [overallData, setOverallData] = useState<OverallEntry[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hasRedirected, setHasRedirected] = useState(false);
   
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isInitialized } = useAuth();
   const router = useRouter();
 
   const generateTrackOptions = (): JSX.Element[] => {
@@ -109,7 +110,10 @@ const LeaderBoardPage = () => {
   };
 
   useEffect(() => {
+    if (!isInitialized || hasRedirected) return;
+    
     if (!isLoggedIn) {
+      setHasRedirected(true);
       router.push('/');
       return;
     }
@@ -132,7 +136,7 @@ const LeaderBoardPage = () => {
     }, 10000);
     
     return () => clearInterval(interval);
-  }, [isLoggedIn, router, trackId, tracks, fetchOverallLeaderboard, fetchLeaderboardData]);
+  }, [isLoggedIn, isInitialized, router, trackId, tracks, fetchOverallLeaderboard, fetchLeaderboardData, hasRedirected]);
 
   useEffect(() => {
     fetchTracksData();

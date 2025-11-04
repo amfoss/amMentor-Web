@@ -6,6 +6,8 @@ import CurrentTask from "../(tasks)/CurrentTask";
 import PlayerStats from "../(user)/PlayerStats";
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
+import { fetchLeaderboard, fetchSubmissions, fetchTasks as apiFetchTasks } from '@/lib/api';
+import { normalizeStatus } from '@/lib/status';
 
 interface Task {
     track_id: number;
@@ -13,7 +15,7 @@ interface Task {
     title: string;
     description: string;
     points: number;
-    deadline: string;
+    deadline: number | null;
     id: number;
 }
 
@@ -35,22 +37,6 @@ interface SubmissionData {
     reviewed_at?: string;
     approved_at?: string;
 }
-
-const normalizeStatus = (status: string): string => {
-    if (!status) return 'Not Started';
-    
-    const statusMap: { [key: string]: string } = {
-        'submitted': 'Submitted',
-        'approved': 'Reviewed',
-        'rejected': 'Reviewed',
-        'paused': 'Paused',
-        'in progress': 'In Progress',
-        'not started': 'Not Started'
-    };
-    
-    const normalizedKey = status.toLowerCase();
-    return statusMap[normalizedKey] || status;
-};
 
 const MenteeDashboard = () => {
     const router = useRouter();
@@ -132,10 +118,7 @@ const MenteeDashboard = () => {
         let allSubmissions: SubmissionData[] = [];
         
         try {
-            const res = await fetch(`https://amapi.amfoss.in/submissions/?email=${encodeURIComponent(userEmail)}&track_id=${trackId}`);
-            
-            if (res.ok) {
-                const submissions: SubmissionData[] = await res.json();
+            const submissions: SubmissionData[] = await fetchSubmissions(userEmail, trackId);
                 allSubmissions = submissions;
                 
                 for (const task of tasksList) {
@@ -149,11 +132,6 @@ const MenteeDashboard = () => {
                         results[task.task_no] = 'Not Started';
                     }
                 }
-            } else {
-                for (const task of tasksList) {
-                    results[task.task_no] = 'Not Started';
-                }
-            }
         } catch (error) {
             console.error(`Error fetching submissions:`, error);
             for (const task of tasksList) {
@@ -171,12 +149,8 @@ const MenteeDashboard = () => {
                 const currentTrack = sessionStorage.getItem("currentTrack");
                 const track: { id: number; name: string } = currentTrack ? JSON.parse(currentTrack) : { id: 0, name: "" };
         
-                const data = await fetch(`https://amapi.amfoss.in/leaderboard/${track.id}`);
-                if (!data.ok) {
-                    throw new Error("Failed to fetch Points and Rank!");
-                }  
-                const response = await data.json();
-                const leaderboard: MenteeDetails[] = response['leaderboard'];
+                const response = await fetchLeaderboard(track.id);
+                const leaderboard = response['leaderboard'] as Array<{ mentee_name: string; total_points: number }>;
 
                 const currentUserName = localStorage.getItem("name");
                 const currentUserIndex = leaderboard.findIndex(
@@ -203,6 +177,8 @@ const MenteeDashboard = () => {
                 const sessionTrack = sessionStorage.getItem('currentTrack');
                 
                 if (!sessionTrack) {
+                    // If sessionTrack is missing or corrupted, clear possible stale keys and redirect once
+                    sessionStorage.removeItem('currentTrack');
                     router.push('/track');
                     return;
                 }
@@ -210,13 +186,7 @@ const MenteeDashboard = () => {
                 const trackData = JSON.parse(sessionTrack);
                 const trackId = trackData.id;
                 
-                const response = await fetch(`https://amapi.amfoss.in/tracks/${trackId}/tasks`);
-                
-                if (!response.ok) {
-                    throw new Error('Failed to fetch tasks');
-                }
-                
-                const tasksData: Task[] = await response.json();
+                const tasksData: Task[] = await apiFetchTasks(trackId);
                 setTasks(tasksData);
                 
                 await fetchMySubmissions(tasksData, trackId);

@@ -2,6 +2,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { fetchMentorMentees } from '@/lib/api';
 
 interface Mentee {
     name: string;
@@ -32,7 +33,13 @@ interface MenteeProviderProps {
 }
 
 export const MenteeProvider = ({ children }: MenteeProviderProps) => {
-    const [selectedMentee, setSelectedMenteeState] = useState<string | null>(null);
+    const [selectedMentee, setSelectedMenteeState] = useState<string | null>(() => {
+        // Initialize from sessionStorage if available
+        if (typeof window !== 'undefined') {
+            return sessionStorage.getItem('selectedMentee');
+        }
+        return null;
+    });
     const [mentees, setMentees] = useState<Mentee[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -46,18 +53,16 @@ export const MenteeProvider = ({ children }: MenteeProviderProps) => {
         const fetchMentees = async () => {
             try {
                 const mentorEmail = localStorage.getItem("email") || 'atharvanair04@gmail.com';
-                const data = await fetch(`https://amapi.amfoss.in/mentors/${encodeURIComponent(mentorEmail)}/mentees`);
-                
-                if (!data.ok) {
-                    throw new Error("Failed to fetch Mentees!");
-                }
-                
-                const response = await data.json();
+                const response = await fetchMentorMentees(mentorEmail);
                 setMentees(response.mentees);
                 
                 // Set first mentee as selected if no selection
                 if (response.mentees.length > 0 && !selectedMentee) {
-                    setSelectedMenteeState(response.mentees[0].name);
+                    const firstMentee = response.mentees[0].name;
+                    setSelectedMenteeState(firstMentee);
+                    if (typeof window !== 'undefined') {
+                        sessionStorage.setItem('selectedMentee', firstMentee);
+                    }
                 }
             } catch (error) {
                 console.error('Error fetching mentees:', error);
@@ -72,6 +77,10 @@ export const MenteeProvider = ({ children }: MenteeProviderProps) => {
 
     const setSelectedMentee = (name: string) => {
         setSelectedMenteeState(name);
+        // Persist to sessionStorage
+        if (typeof window !== 'undefined') {
+            sessionStorage.setItem('selectedMentee', name);
+        }
     };
 
     return (

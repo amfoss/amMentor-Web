@@ -4,33 +4,41 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/context/authcontext';
 import { Brain, Code, Smartphone, Monitor, Award, HelpCircle } from 'lucide-react';
+import { fetchTracks as apiFetchTracks } from '@/lib/api';
 
 export default function TrackSelectionPage() {
   const [selectedTrack, setSelectedTrack] = useState<number>(-1);
   const [tracks, updatetracks] = useState<{ id: number; name: string; icon: React.ElementType }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasRedirected, setHasRedirected] = useState(false);
   const { userRole, isLoggedIn } = useAuth();
   const router = useRouter();
 
+  const { isInitialized } = useAuth();
+
   useEffect(() => {
+    if (!isInitialized || hasRedirected) return; // wait for auth hydration and prevent duplicate redirects
+
     if (!isLoggedIn) {
+      setHasRedirected(true);
       router.push('/');
       return;
     }
     if (userRole === 'Mentor') {
+      setHasRedirected(true);
       router.push('/dashboard');
       return;
     }
     if (userRole !== 'Mentee') {
+      setHasRedirected(true);
       router.push('/');
       return;
     }
 
     async function fetchdata() {
       try {
-        const icons_set = {1:Brain,2:Code,3:Smartphone,4:Monitor,5:Award};
-        const data = await fetch("https://amapi.amfoss.in/tracks/");    
-        const response: { id: number; title: string }[] = await data.json();
+  const icons_set = {1:Brain,2:Code,3:Smartphone,4:Monitor,5:Award};
+  const response: { id: number; title: string }[] = await apiFetchTracks();
 
         const updatedTracks = response.map((element) => ({
           id: element.id,
@@ -45,7 +53,7 @@ export default function TrackSelectionPage() {
       }
     }
     fetchdata();
-  }, [router, userRole, isLoggedIn]);
+  }, [router, userRole, isLoggedIn, isInitialized, hasRedirected]);
 
   const handleTrackSelect = (trackId: number) => {
     setSelectedTrack(trackId);

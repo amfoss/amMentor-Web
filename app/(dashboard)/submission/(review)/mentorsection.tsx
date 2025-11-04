@@ -1,4 +1,5 @@
 import React from 'react';
+import { approveTask } from '@/lib/api';
 
 interface MentorSectionProps {
   isMentor: boolean;
@@ -78,20 +79,7 @@ const MentorSection = ({
     };
 
     try {
-      const res = await fetch('https://amapi.amfoss.in/progress/approve-task', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(`Review failed: ${data.detail || 'Unknown error'}`);
-        return;
-      }
+      const data = await approveTask(body);
 
       setReviewStatus(action);
       setTaskStatus(action === 'unpaused' ? 'In Progress' : 'Reviewed');

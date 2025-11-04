@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import TaskDetails from './taskdetails';
 import MentorSection from './mentorsection';
+import { fetchTasks as apiFetchTasks, fetchSubmissions } from '@/lib/api';
+import { normalizeStatus } from '@/lib/status';
 
 interface SubmissionReviewProps {
   isMentor: boolean;
@@ -72,22 +74,7 @@ const SubmissionReview = ({
   const [loading, setLoading] = useState(false);
   const [localTasks, setLocalTasks] = useState<Task[]>(tasks); // Local state for tasks
 
-  // Helper function to normalize status strings
-  const normalizeStatus = (status: string): string => {
-    if (!status) return 'Not Started';
-    
-    const statusMap: { [key: string]: string } = {
-      'submitted': 'Submitted',
-      'approved': 'Reviewed',
-      'rejected': 'Reviewed',
-      'paused': 'Paused',
-      'in progress': 'In Progress',
-      'not started': 'Not Started'
-    };
-    
-    const normalizedKey = status.toLowerCase();
-    return statusMap[normalizedKey] || status;
-  };
+  // use shared normalizeStatus
 
   // Fetch tasks if not provided
   useEffect(() => {
@@ -112,9 +99,8 @@ const SubmissionReview = ({
           }
         }
 
-        const res = await fetch(`https://amapi.amfoss.in/tracks/${currentTrackId}/tasks`);
-        if (res.ok) {
-          const tasksData: TaskApiResponse[] = await res.json();
+        try {
+          const tasksData: TaskApiResponse[] = await apiFetchTasks(Number(currentTrackId));
           const formattedTasks: Task[] = tasksData.map(task => ({
             id: task.id,
             title: task.title,
@@ -125,7 +111,7 @@ const SubmissionReview = ({
             points: task.points,
           }));
           setLocalTasks(formattedTasks);
-        }
+        } catch (e) { /* already logged below */ }
       } catch (error) {
         console.error('Error fetching tasks:', error);
       }
@@ -135,27 +121,35 @@ const SubmissionReview = ({
   }, [trackId, isMentor, localTasks.length]);
 
   // Check if the current task is unlocked based on previous task completion
+  // Note: `taskId` passed around in this component refers to the task's `id` (DB id).
+  // We must map to `task_no` to decide ordering/locking.
   const isTaskUnlocked = (currentTaskId: string): boolean => {
     if (isMentor) return true; // Mentors can access any task
-    
+
     const currentId = parseInt(currentTaskId);
-    if (currentId <= 1) return true; // First task is always unlocked
-    
-    const previousTaskId = currentId - 1;
-    const previousTask = localTasks.find(task => task.id === previousTaskId);
-    
-    // If previous task doesn't exist, don't unlock
+    const currentTask = localTasks.find(t => t.id === currentId);
+    // If we can't find the current task, be conservative and allow access
+    if (!currentTask) return true;
+
+    const currentTaskNo = typeof currentTask.task_no === 'number' ? currentTask.task_no : 0;
+    // First task (task_no === 0) or missing task_no should be unlocked
+    if (currentTaskNo <= 0) return true;
+
+    const previousTaskNo = currentTaskNo - 1;
+    const previousTask = localTasks.find(task => task.task_no === previousTaskNo);
+
+    // If previous task doesn't exist, allow (can't enforce lock)
     if (!previousTask) {
-      return false;
+      return true;
     }
-    
-    // CRITICAL FIX: If previous task has null deadline, current task is automatically unlocked
+
+    // If previous task has no deadline, don't lock the next task
     if (previousTask.deadline === null) {
       return true;
     }
-    
-    // Otherwise, check if previous task is completed
-    const previousTaskStatus = allSubmissions[previousTaskId];
+
+    // allSubmissions uses task_no as keys (earlier code maps by task.task_no)
+    const previousTaskStatus = allSubmissions[previousTaskNo];
     return previousTaskStatus === 'Submitted' || previousTaskStatus === 'Reviewed';
   };
 
@@ -208,9 +202,7 @@ const SubmissionReview = ({
           return;
         }
         
-        const res = await fetch(`https://amapi.amfoss.in/submissions/?email=${encodeURIComponent(email)}&track_id=${currentTrackId}`);
-        if (res.ok) {
-          const submissions: SubmissionResponse[] = await res.json();
+        const submissions: SubmissionResponse[] = await fetchSubmissions(email, Number(currentTrackId));
           
           const taskSubmission = submissions.find((s: SubmissionResponse) => s.task_id === parseInt(taskId));
           
@@ -236,11 +228,7 @@ const SubmissionReview = ({
             setMentorNotes('');
             setTaskStatus('Not Started');
           }
-        } else {
-          console.error('Failed to fetch submissions:', res.status, res.statusText);
-          const errorText = await res.text();
-          console.error('Error response:', errorText);
-        }
+        
       } catch (error) {
         console.error('Error fetching submission data:', error);
       } finally {

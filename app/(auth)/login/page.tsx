@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/context/authcontext';
+import { sendOtp, verifyOtp } from '@/lib/api';
 
 export default function LoginPage() {
   type UserRole = 'mentee' | 'mentor';
@@ -12,25 +13,30 @@ export default function LoginPage() {
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [hasRedirected, setHasRedirected] = useState(false);
 
   const router = useRouter();
-  const { login, isLoggedIn } = useAuth();
+  const { login, isLoggedIn, isInitialized } = useAuth();
 
-  const API_URL = 'https://amapi.amfoss.in/';
+  // API base is configured via NEXT_PUBLIC_API_URL
 
   useEffect(() => {
+    if (!isInitialized || hasRedirected) return; // wait until auth is hydrated and prevent duplicate redirects
+
     const emailInStorage = localStorage.getItem('email');
     if (isLoggedIn && emailInStorage) {
       const userRole = localStorage.getItem('userRole');
+      setHasRedirected(true);
+      // Temporary: send all logged-in users to /dashboard to avoid redirect loops when sessionTrack is missing
       if (userRole === 'Mentor') {
         router.push('/dashboard');
       } else {
-        router.push('/track');
+        router.push('/dashboard');
       }
     } else {
       setLoading(false);
     }
-  }, [isLoggedIn, router]);
+  }, [isLoggedIn, isInitialized, router, hasRedirected]);
 
   const handleGenerateOtp = async () => {
     if (!email.includes('@') || !email.includes('.')) {
@@ -39,9 +45,7 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await fetch(`${API_URL}auth/send-otp/${encodeURIComponent(email)}`);
-      if (!res.ok) throw new Error('Failed to send OTP');
-
+  await sendOtp(email);
       setOtpSent(true);
     } catch (err) {
       console.error(err);
@@ -51,33 +55,33 @@ export default function LoginPage() {
 
   const handleLogin = async () => {
     try {
-      const verifyUrl = `${API_URL}auth/verify-otp/${encodeURIComponent(email)}?otp=${encodeURIComponent(otp)}`;
-      const verifyRes = await fetch(verifyUrl);
-
-      if (!verifyRes.ok) {
-        alert('Invalid OTP or something went wrong.');
-        return;
-      }
-
-      const user = await verifyRes.json();
+      const user = await verifyOtp(email, otp);
       if (user.role !== role) {
         alert(`Registered as ${user.role}, not ${role}`);
         return;
       }
 
-      localStorage.setItem('email', user.email);
-      localStorage.setItem('name',user.name)
-      const capitalizedRole = role.charAt(0).toUpperCase() + role.slice(1) as 'Mentee' | 'Mentor';
+  // Write auth state atomically
+  const capitalizedRole = role.charAt(0).toUpperCase() + role.slice(1) as 'Mentee' | 'Mentor';
+  localStorage.setItem('email', user.email);
+  localStorage.setItem('name', user.name);
+  localStorage.setItem('userRole', capitalizedRole);
+  localStorage.setItem('isLoggedIn', 'true');
+  login(capitalizedRole);
       
-      localStorage.setItem('userRole', capitalizedRole);
-      
-      login(capitalizedRole);
-      
-      if (capitalizedRole === 'Mentor') {
-        router.push('/dashboard');
-      } else {
-        router.push('/track');
+      // Ensure mentees have a currentTrack to avoid immediate redirect to /track (hotfix)
+      if (capitalizedRole === 'Mentee') {
+        if (typeof window !== 'undefined') {
+          const existing = sessionStorage.getItem('currentTrack');
+          if (!existing) {
+            // set a sensible default so pages that expect a currentTrack do not redirect
+            sessionStorage.setItem('currentTrack', JSON.stringify({ id: 1, name: 'Track 1' }));
+          }
+        }
       }
+
+      // Temporary: send all logged-in users to /dashboard to avoid redirect loops
+      router.push('/dashboard');
     } catch (error) {
       console.error("Login failed", error);
       alert("Something went wrong during login.");

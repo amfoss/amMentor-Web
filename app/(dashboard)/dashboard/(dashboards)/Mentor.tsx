@@ -7,6 +7,8 @@ import PlayerProgress from "../(user)/PlayerProgress";
 import PlayerStats from "../(user)/PlayerStats";
 import { JSX, useEffect, useMemo, useState, useCallback } from 'react';
 import { useMentee } from "@/app/context/menteeContext";
+import { fetchTracks as apiFetchTracks, fetchTasks as apiFetchTasks, fetchSubmissions, fetchLeaderboard } from '@/lib/api';
+import { normalizeStatus } from '@/lib/status';
 
 interface Task {
     track_id: number;
@@ -14,7 +16,7 @@ interface Task {
     title: string;
     description: string;
     points: number;
-    deadline: string;
+    deadline: number | null;
     id: number;
 }
 
@@ -44,21 +46,7 @@ interface SubmissionData {
     // Add other submission properties as needed
 }
 
-const normalizeStatus = (status: string): string => {
-    if (!status) return 'Not Started';
-    
-    const statusMap: { [key: string]: string } = {
-        'submitted': 'Submitted',
-        'approved': 'Reviewed',
-        'rejected': 'Reviewed',
-        'paused': 'Paused',
-        'in progress': 'In Progress',
-        'not started': 'Not Started'
-    };
-    
-    const normalizedKey = status.toLowerCase();
-    return statusMap[normalizedKey] || status;
-};
+// use shared normalizeStatus from lib/status
 
 const MentorDashboard = () => {
     const { 
@@ -95,26 +83,32 @@ const MentorDashboard = () => {
     // Fetch available tracks
     const fetchTracks = useCallback(async () => {
         try {
-            const response = await fetch('https://amapi.amfoss.in/tracks/');
-            if (!response.ok) throw new Error('Failed to fetch tracks');
-            const tracksData: TrackData[] = await response.json();
-            setTracks(tracksData.map((track: TrackData) => ({ id: track.id, name: track.title })));
+            const tracksData: TrackData[] = await apiFetchTracks();
+            const formattedTracks = tracksData.map((track: TrackData) => ({ id: track.id, name: track.title }));
+            setTracks(formattedTracks);
             
-            // Set initial track from session storage or default to track 1
+            // Set initial track from session storage or default to first available track
             const savedTrack = sessionStorage.getItem('mentorCurrentTrack');
             if (savedTrack) {
-                setCurrentTrack(JSON.parse(savedTrack));
-            } else {
-                const defaultTrack = { id: 1, name: tracksData.find((t: TrackData) => t.id === 1)?.title || 'Track 1' };
-                setCurrentTrack(defaultTrack);
-                sessionStorage.setItem('mentorCurrentTrack', JSON.stringify(defaultTrack));
+                const parsed = JSON.parse(savedTrack);
+                // Verify saved track still exists
+                const trackExists = formattedTracks.some(t => t.id === parsed.id);
+                if (trackExists) {
+                    setCurrentTrack(parsed);
+                } else {
+                    // Saved track doesn't exist, use first available
+                    const firstTrack = formattedTracks[0];
+                    setCurrentTrack(firstTrack);
+                    sessionStorage.setItem('mentorCurrentTrack', JSON.stringify(firstTrack));
+                }
+            } else if (formattedTracks.length > 0) {
+                // No saved track, use first available
+                const firstTrack = formattedTracks[0];
+                setCurrentTrack(firstTrack);
+                sessionStorage.setItem('mentorCurrentTrack', JSON.stringify(firstTrack));
             }
         } catch (error) {
             console.error('Error fetching tracks:', error);
-            // Fallback to default track 1
-            const defaultTrack = { id: 1, name: 'Track 1' };
-            setCurrentTrack(defaultTrack);
-            sessionStorage.setItem('mentorCurrentTrack', JSON.stringify(defaultTrack));
         }
     }, []);
 
@@ -202,10 +196,7 @@ const MentorDashboard = () => {
             // Fetch submissions per track instead of per task
             for (const [trackId, tasksInTrack] of Object.entries(tasksByTrack)) {
                 try {
-                    const res = await fetch(`https://amapi.amfoss.in/submissions/?email=${encodeURIComponent(mentee.email)}&track_id=${trackId}`);
-                    
-                    if (res.ok) {
-                        const submissions: SubmissionData[] = await res.json();
+                    const submissions: SubmissionData[] = await fetchSubmissions(mentee.email, Number(trackId));
                         
                         // Store full submissions for feedback
                         fullSubmissionsResults[mentee.name].push(...submissions);
@@ -217,12 +208,6 @@ const MentorDashboard = () => {
                             const normalizedStatus = normalizeStatus(rawStatus);
                             statusResults[mentee.name][task.id] = normalizedStatus;
                         });
-                    } else {
-                        // If API call fails, set all tasks in this track as 'Not Started'
-                        tasksInTrack.forEach(task => {
-                            statusResults[mentee.name][task.id] = 'Not Started';
-                        });
-                    }
                 } catch (error) {
                     console.error(`Error fetching submissions for ${mentee.name}, track ${trackId}:`, error);
                     // Set all tasks in this track as 'Not Started' on error
@@ -239,15 +224,12 @@ const MentorDashboard = () => {
 
     const fetchMenteeDetails = async (menteeName: string) => {
         try {
-            const mentorTrack = sessionStorage.getItem("mentorCurrentTrack");
-            const track: { id: number; name: string } = mentorTrack ? JSON.parse(mentorTrack) : { id: 1, name: "" };
-            
-            const data = await fetch(`https://amapi.amfoss.in/leaderboard/${track.id}`);
-            if (!data.ok) {
-                throw new Error("Failed to fetch Points and Rank!");
+            if (!currentTrack) {
+                return;
             }
-            const response = await data.json();
-            const leaderboard: MenteeDetails[] = response['leaderboard'];
+            
+            const response = await fetchLeaderboard(currentTrack.id);
+            const leaderboard = response['leaderboard'] as Array<MenteeDetails>;
             
             // Find the mentee's position in the leaderboard
             const menteeIndex = leaderboard.findIndex(element => element.mentee_name === menteeName);
@@ -281,15 +263,11 @@ const MentorDashboard = () => {
 
     const fetchTasks = useCallback(async () => {
         try {
-            const trackId = currentTrack?.id || 1; // Use current track or fallback to 1
-            
-            const response = await fetch(`https://amapi.amfoss.in/tracks/${trackId}/tasks`);
-            
-            if (!response.ok) {
-                throw new Error('Failed to fetch tasks');
+            if (!currentTrack?.id) {
+                return [];
             }
             
-            const tasksData: Task[] = await response.json();
+            const tasksData: Task[] = await apiFetchTasks(currentTrack.id);
             setTasks(tasksData);
             settotaltask(tasksData.length);
             
@@ -356,11 +334,6 @@ const MentorDashboard = () => {
                             <h1>Welcome, </h1>
                             <h1 className="text-primary-yellow">Mentor</h1>
                         </div>
-                        {currentTrack && (
-                            <div className="text-sm text-gray-400">
-                                Track: {currentTrack.name}
-                            </div>
-                        )}
                     </div>
                     <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                         <select 

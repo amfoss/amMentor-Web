@@ -5,6 +5,8 @@ import TasksViewer from "./(tasks)/submissionitems";
 import { useAuth } from "@/app/context/authcontext";
 import { useMentee } from "@/app/context/menteeContext";
 import { useRouter } from 'next/navigation';
+import { fetchTasks as apiFetchTasks, fetchSubmissions, fetchTracks as apiFetchTracks } from '@/lib/api';
+import { normalizeStatus } from '@/lib/status';
 
 import SubmissionReview from "./(review)/review";
 
@@ -23,25 +25,11 @@ interface Submission {
     status: string;
 }
 
-const normalizeStatus = (status: string): string => {
-    if (!status) return 'Not Started';
-    
-    const statusMap: { [key: string]: string } = {
-        'submitted': 'Submitted',
-        'approved': 'Reviewed',
-        'rejected': 'Rejected',
-        'paused': 'Paused',
-        'in progress': 'In Progress',
-        'not started': 'Not Started'
-    };
-    
-    const normalizedKey = status.toLowerCase();
-    return statusMap[normalizedKey] || status;
-};
+// use shared normalizeStatus
 
 // Main component that uses search params - must be wrapped in Suspense
 const TasksPageContent = () => {
-    const { userRole, isLoggedIn } = useAuth();
+    const { userRole, isLoggedIn, isInitialized } = useAuth();
     const { 
         selectedMentee, 
         selectedMenteeEmail, 
@@ -103,19 +91,37 @@ const TasksPageContent = () => {
                         const trackData = JSON.parse(mentorTrack);
                         finalTrackId = trackData.id;
                     } else {
-                        // Fallback to track 1 if no track is selected
-                        finalTrackId = 1;
+                        // No track selected - fetch available tracks and use first one
+                        try {
+                            const tracks = await apiFetchTracks();
+                            if (tracks.length > 0) {
+                                finalTrackId = tracks[0].id;
+                                // Save it for future use
+                                const firstTrack = { id: tracks[0].id, name: tracks[0].title };
+                                sessionStorage.setItem('mentorCurrentTrack', JSON.stringify(firstTrack));
+                            } else {
+                                console.error('No tracks available');
+                                return [];
+                            }
+                        } catch (error) {
+                            console.error('Error fetching tracks:', error);
+                            return [];
+                        }
                     }
                 } else {
-                    finalTrackId = 1;
+                    return [];
                 }
             } else {
                 if (typeof window !== 'undefined') {
                     const sessionTrack = sessionStorage.getItem('currentTrack');
-                    if (!sessionTrack) {
-                        router.push('/track');
-                        return [];
-                    }
+                        if (!sessionTrack) {
+                            // Wait for auth to initialize before redirecting to prevent loop
+                            if (!isInitialized) {
+                                return [];
+                            }
+                            router.push('/track');
+                            return [];
+                        }
                     const trackData = JSON.parse(sessionTrack);
                     finalTrackId = trackData.id;
                 } else {
@@ -127,16 +133,14 @@ const TasksPageContent = () => {
         if (!finalTrackId) return [];
 
         try {
-            const response = await fetch(`https://amapi.amfoss.in/tracks/${finalTrackId}/tasks`);
-            if (!response.ok) throw new Error('Failed to fetch tasks');
-            const data = await response.json();
+            const data = await apiFetchTasks(finalTrackId);
             setTasks(data);
             return data;
         } catch (error) {
             console.error('Error fetching tasks:', error);
             return [];
         }
-    }, [userRole, router]);
+    }, [userRole, router, isInitialized]);
 
     const fetchSelectedMenteeSubmissions = useCallback(async (trackId: number, tasksList: Task[]) => {
         if (!selectedMentee || !selectedMenteeEmail) {
@@ -147,10 +151,8 @@ const TasksPageContent = () => {
         results[selectedMentee] = {};
         
         try {
-            const res = await fetch(`https://amapi.amfoss.in/submissions/?email=${encodeURIComponent(selectedMenteeEmail)}&track_id=${trackId}`);
-            
-            if (res.ok) {
-                const submissions: Submission[] = await res.json();
+            try {
+                const submissions: Submission[] = await fetchSubmissions(selectedMenteeEmail, trackId);
                 
                 for (const task of tasksList) {
                     const taskSubmission = submissions.find((s: Submission) => s.task_id === task.id);
@@ -158,8 +160,8 @@ const TasksPageContent = () => {
                     const normalizedStatus = normalizeStatus(rawStatus);
                     results[selectedMentee][task.task_no] = normalizedStatus;
                 }
-            } else {
-                console.error(`Failed to fetch submissions for ${selectedMentee}:`, res.status);
+            } catch (e) {
+                console.error(`Failed to fetch submissions for ${selectedMentee}:`, e);
                 for (const task of tasksList) {
                     results[selectedMentee][task.task_no] = 'Not Started';
                 }
@@ -183,10 +185,8 @@ const TasksPageContent = () => {
         const results: Record<number, string> = {};
         
         try {
-            const res = await fetch(`https://amapi.amfoss.in/submissions/?email=${encodeURIComponent(userEmail)}&track_id=${trackId}`);
-            
-            if (res.ok) {
-                const submissions: Submission[] = await res.json();
+            try {
+                const submissions: Submission[] = await fetchSubmissions(userEmail, trackId);
                 
                 for (const task of tasksList) {
                     const taskSubmission = submissions.find((s: Submission) => s.task_id === task.id);
@@ -199,8 +199,8 @@ const TasksPageContent = () => {
                         results[task.task_no] = 'Not Started';
                     }
                 }
-            } else {
-                console.error(`Failed to fetch submissions for track ${trackId}:`, res.status);
+            } catch (e) {
+                console.error(`Failed to fetch submissions for track ${trackId}:`, e);
                 for (const task of tasksList) {
                     results[task.task_no] = 'Not Started';
                 }
@@ -279,6 +279,8 @@ const TasksPageContent = () => {
 
     // Updated useEffect with optimized API calls
     useEffect(() => {
+        if (!isInitialized) return;
+        
         if (!isLoggedIn) {
             router.push('/');
             return;
@@ -296,11 +298,24 @@ const TasksPageContent = () => {
                         trackId = trackData.id;
                         setCurrentTrack(trackData);
                     } else {
-                        // Fallback to track 1 if no track selected
-                        trackId = 1;
-                        const defaultTrack = { id: 1, name: 'Track 1' };
-                        setCurrentTrack(defaultTrack);
-                        sessionStorage.setItem('mentorCurrentTrack', JSON.stringify(defaultTrack));
+                        // Fetch available tracks and use the first one
+                        try {
+                            const tracks = await apiFetchTracks();
+                            if (tracks.length > 0) {
+                                trackId = tracks[0].id;
+                                const defaultTrack = { id: tracks[0].id, name: tracks[0].title };
+                                setCurrentTrack(defaultTrack);
+                                sessionStorage.setItem('mentorCurrentTrack', JSON.stringify(defaultTrack));
+                            } else {
+                                console.error('No tracks available');
+                                setLoading(false);
+                                return;
+                            }
+                        } catch (err) {
+                            console.error('Error fetching tracks:', err);
+                            setLoading(false);
+                            return;
+                        }
                     }
                 } else {
                     const sessionTrack = sessionStorage.getItem('currentTrack');
@@ -337,7 +352,7 @@ const TasksPageContent = () => {
         };
 
         init();
-    }, [isLoggedIn, router, userRole, ismentor, fetchTasks, fetchSelectedMenteeSubmissions, fetchMySubmissions, menteesLoading, selectedMentee, selectedMenteeEmail]);
+    }, [isInitialized, isLoggedIn, router, userRole, ismentor, fetchTasks, fetchSelectedMenteeSubmissions, fetchMySubmissions, menteesLoading, selectedMentee, selectedMenteeEmail]);
 
     // Separate effect to handle mentee selection changes
     useEffect(() => {
@@ -438,6 +453,8 @@ const TasksPageContent = () => {
 
     // Main initialization effect
     useEffect(() => {
+        if (!isInitialized) return;
+        
         if (!isLoggedIn) {
             router.push('/');
             return;
@@ -505,7 +522,7 @@ const TasksPageContent = () => {
         };
 
         init();
-    }, [isLoggedIn, router, ismentor, fetchTasks, fetchSelectedMenteeSubmissions, fetchMySubmissions, menteesLoading, selectedMentee, selectedMenteeEmail, userRole]);
+    }, [isInitialized, isLoggedIn, router, ismentor, fetchTasks, fetchSelectedMenteeSubmissions, fetchMySubmissions, menteesLoading, selectedMentee, selectedMenteeEmail, userRole]);
 
     // Update formatted tasks
     useEffect(() => {
