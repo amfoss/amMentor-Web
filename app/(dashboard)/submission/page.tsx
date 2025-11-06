@@ -69,7 +69,7 @@ const TasksPageContent = () => {
             return false;
         }
         
-        if (previousTask.deadline === null) {
+        if (previousTask.deadline === null || previousTask.deadline === 0) {
             return true;
         }
         
@@ -264,7 +264,7 @@ const TasksPageContent = () => {
                 let displayStatus = status;
                 if (!unlocked) {
                     displayStatus = `🔒 ${status}`;
-                } else if (task.deadline === null) {
+                } else if (task.deadline === null || task.deadline === 0) {
                     displayStatus = `${status} ⚡ (No deadline)`;
                 } else {
                     displayStatus = `${status} (${task.deadline} days)`;
@@ -413,7 +413,7 @@ const TasksPageContent = () => {
                 const previousTaskNo = task.task_no - 1;
                 const previousTask = tasks.find(task => task.task_no === previousTaskNo);
                 
-                if (previousTask && previousTask.deadline === null) {
+                if (previousTask && previousTask.deadline === null || previousTask?.deadline === 0) {
                     alert(`Task ${previousTaskNo + 1} ("${previousTask.title}") has no deadline and should automatically unlock this task. If you're seeing this error, please refresh the page or contact support.`);
                 } else {
                     const previousTaskTitle = previousTask ? `"${previousTask.title}"` : (previousTaskNo + 1).toString();

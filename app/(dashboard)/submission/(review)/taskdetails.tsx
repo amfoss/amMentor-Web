@@ -75,7 +75,7 @@ const TaskDetails = ({
     }
     
     // CRITICAL FIX: If previous task has null deadline, current task is automatically unlocked
-    if (previousTask.deadline === null) {
+    if (previousTask.deadline === null || previousTask.deadline === 0) {
       return true;
     }
     
@@ -93,7 +93,7 @@ const TaskDetails = ({
     const previousTaskNo = currentTask.task_no - 1;
     const previousTask = tasks.find(task => task.task_no === previousTaskNo);
     
-    if (previousTask && previousTask.deadline === null) {
+    if (previousTask && previousTask.deadline === null || previousTask && previousTask.deadline === 0) {
       return `Task ${previousTaskNo + 1} ("${previousTask.title}") has no deadline and should automatically unlock this task. If you're seeing this error, please refresh the page or contact support.`;
     }
     
@@ -212,10 +212,10 @@ const TaskDetails = ({
             {task?.title || 'TASK NAME'}
           </h2>
           <p className="text-gray-400">TASK - {task ? (task.task_no + 1) : 'XX'}</p>
-          {task?.deadline === null && (
+          {task?.deadline === 0 && (
             <p className="text-green-400 text-sm">📅 No deadline - Next task automatically unlocked</p>
           )}
-          {task?.deadline !== null && task?.deadline && (
+          {task?.deadline !== 0 && task?.deadline && (
             <p className="text-yellow-400 text-sm">📅 Deadline: {task.deadline} days</p>
           )}
           {startDate && (

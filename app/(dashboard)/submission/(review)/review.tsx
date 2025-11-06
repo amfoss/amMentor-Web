@@ -144,7 +144,7 @@ const SubmissionReview = ({
     }
 
     // If previous task has no deadline, don't lock the next task
-    if (previousTask.deadline === null) {
+    if (previousTask.deadline === null || previousTask.deadline === 0) {
       return true;
     }
 
