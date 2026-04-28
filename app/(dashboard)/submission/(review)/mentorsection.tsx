@@ -128,8 +128,8 @@ const MentorSection = ({
             </p>
           </>
         ) : (
-          <div className="text-sm md:text-base text-gray-300 leading-relaxed">
-            <span className="text-primary-yellow font-bold">@Mentor:</span> {mentorNotes || 'Notes Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry\'s standard dummy text ever since the 1500s.'}
+          <div className="text-sm md:text-base text-gray-500 leading-relaxed">
+           {mentorNotes || 'Task is yet to be reviewed by mentor.'}
           </div>
         )}
       </div>

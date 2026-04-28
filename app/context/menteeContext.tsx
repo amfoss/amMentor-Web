@@ -34,7 +34,6 @@ interface MenteeProviderProps {
 
 export const MenteeProvider = ({ children }: MenteeProviderProps) => {
     const [selectedMentee, setSelectedMenteeState] = useState<string | null>(() => {
-        // Initialize from sessionStorage if available
         if (typeof window !== 'undefined') {
             return sessionStorage.getItem('selectedMentee');
         }
@@ -43,26 +42,26 @@ export const MenteeProvider = ({ children }: MenteeProviderProps) => {
     const [mentees, setMentees] = useState<Mentee[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Get selected mentee's email
-    const selectedMenteeEmail = selectedMentee 
+    const selectedMenteeEmail = selectedMentee
         ? mentees.find(m => m.name === selectedMentee)?.email || null
         : null;
 
-    // Fetch mentees when component mounts
+    // FIX: removed `selectedMentee` from deps — it was triggering a re-fetch
+    // every time the mentee changed, causing isLoading to flip and the
+    // "no mentee selected" guard to briefly fire, redirecting to dashboard.
     useEffect(() => {
         const fetchMentees = async () => {
             try {
                 const mentorEmail = localStorage.getItem("email") || 'atharvanair04@gmail.com';
                 const response = await fetchMentorMentees(mentorEmail);
                 setMentees(response.mentees);
-                
-                // Set first mentee as selected if no selection
-                if (response.mentees.length > 0 && !selectedMentee) {
+
+                // Only default-select if nothing is persisted in session
+                const persisted = sessionStorage.getItem('selectedMentee');
+                if (response.mentees.length > 0 && !persisted) {
                     const firstMentee = response.mentees[0].name;
                     setSelectedMenteeState(firstMentee);
-                    if (typeof window !== 'undefined') {
-                        sessionStorage.setItem('selectedMentee', firstMentee);
-                    }
+                    sessionStorage.setItem('selectedMentee', firstMentee);
                 }
             } catch (error) {
                 console.error('Error fetching mentees:', error);
@@ -73,18 +72,17 @@ export const MenteeProvider = ({ children }: MenteeProviderProps) => {
         };
 
         fetchMentees();
-    }, [selectedMentee]);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const setSelectedMentee = (name: string) => {
         setSelectedMenteeState(name);
-        // Persist to sessionStorage
         if (typeof window !== 'undefined') {
             sessionStorage.setItem('selectedMentee', name);
         }
     };
 
     return (
-        <MenteeContext.Provider 
+        <MenteeContext.Provider
             value={{
                 selectedMentee,
                 selectedMenteeEmail,

@@ -217,9 +217,14 @@ const TaskDetails = ({
         </p>
         
         <p className="text-xs md:text-sm text-gray-300 mt-4 leading-relaxed">
-          <span className="font-bold">TASK DETAILS</span> {task?.description || 'Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry\'s standard dummy text ever since the 1500s...'}
+          <span className="font-bold">TASK DETAILS</span> {task?.description}
         </p>
-        
+
+        <p className="text-xs md:text-sm text-gray-300 mt-4 leading-relaxed">
+        <span className="text-primary-yellow">Starting Date: </span>
+        <span className="ml-2">{startDate ? new Date(startDate).toLocaleDateString() : 'Not provided'}</span>   
+        </p>     
+
         <div className="border-t border-gray-700 mb-6 mt-6"></div>
 
         {/* PROGRESS SECTION */}
@@ -304,7 +309,7 @@ const TaskDetails = ({
                 <p>{submissionText}</p>
               )
             ) : (
-            <p>Contrary to popular belief, Lorem Ipsum is not simply random text...</p>
+            <p>No submission yet</p>
             )}
             </div>
             <div className="flex justify-center">
